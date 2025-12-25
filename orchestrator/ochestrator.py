@@ -7,16 +7,18 @@ from agent.agents import *
 class Orchestrator:
     def __init__(self, task: str, n_agents: int):
         self.task = task
-        self.n_agents - n_agents
+        self.n_agents = n_agents
         self.data_dir = "data"
-        self.files = ["breakthroughs.json", "hypothesis.json", "pitfalls.json"]
+        self.files = ["breakthroughs.json", "hypothesis.json", "pitfalls.json", "log.json"]
         self.build()
 
     def orchestrator(self):
-        goal = f"given the task: {self.task} and the current codebase, please determine if the task has been completed or if we must continue"
+        goal = self.task
         
         if check_complete(goal):
-            print("here a report should be generated")
+            with open("report.md", "w") as f:
+                summary = generate_summary()
+                f.write(summary)
 
         else:
             print("here we want to initialize n_agents number of agents to begin working on the task")
