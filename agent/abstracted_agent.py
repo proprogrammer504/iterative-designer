@@ -3,13 +3,16 @@ import re
 import subprocess
 from openai import OpenAI
 
+
 class BaseAgent:
-    def __init__(self, specialization, task, can_write=False, can_execute_terminal=False, extra_tools=None, max_steps=10):
+    def __init__(self, specialization, task, can_write=False, can_execute_terminal=False, 
+                 extra_tools=None, max_steps=10, working_dir=None):
         self.specialization = specialization
         self.task = task
         self.can_write = can_write
         self.can_execute_terminal = can_execute_terminal
         self.max_steps = max_steps
+        self.working_dir = working_dir or "."
         
         self.tools = {
             "list_files": self.list_files,
@@ -64,23 +67,31 @@ class BaseAgent:
             - You should never have more than 4 comments in one function. 
             - When you have the answer, output it as Final Answer."""
 
+    def _resolve_path(self, path):
+        if os.path.isabs(path):
+            return path
+        return os.path.join(self.working_dir, path)
+
     def list_files(self, dir_path="."):
+        resolved_path = self._resolve_path(dir_path)
         file_list = []
         ignore_dirs = {'.git', '__pycache__', 'venv', '.vscode', 'node_modules', '.idea', '.venv'}
         try:
-            for root, dirs, files in os.walk(dir_path):
+            for root, dirs, files in os.walk(resolved_path):
                 dirs[:] = [d for d in dirs if d not in ignore_dirs]
                 for file in files:
-                    file_list.append(os.path.join(root, file))
+                    rel_path = os.path.relpath(os.path.join(root, file), self.working_dir)
+                    file_list.append(rel_path)
             return "\n".join(file_list) if file_list else "No files found."
         except Exception as e:
             return str(e)
 
     def read_file(self, file_path):
         try:
-            if ".." in file_path or file_path.startswith("/"):
+            resolved_path = self._resolve_path(file_path)
+            if ".." in file_path and not os.path.abspath(resolved_path).startswith(os.path.abspath(self.working_dir)):
                 return "Error: Access denied."
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(resolved_path, 'r', encoding='utf-8') as f:
                 return f.read()
         except Exception as e:
             return str(e)
@@ -95,12 +106,13 @@ class BaseAgent:
             
             file_path, content = input_str.split("|", 1)
             file_path = file_path.strip()
+            resolved_path = self._resolve_path(file_path)
             
-            if ".." in file_path or file_path.startswith("/"):
+            if ".." in file_path and not os.path.abspath(resolved_path).startswith(os.path.abspath(self.working_dir)):
                 return "Error: Access denied (External path)."
                 
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
-            with open(file_path, 'w', encoding='utf-8') as f:
+            os.makedirs(os.path.dirname(resolved_path), exist_ok=True) if os.path.dirname(resolved_path) else None
+            with open(resolved_path, 'w', encoding='utf-8') as f:
                 f.write(content)
             return f"Success: Wrote to {file_path}"
         except Exception as e:
@@ -120,10 +132,13 @@ class BaseAgent:
                 return f"Error: Command blocked for safety. Forbidden pattern detected: {pattern}"
 
         venv_dir = None
-        if os.path.exists(".venv"):
+        venv_check_path = os.path.join(self.working_dir, ".venv")
+        if os.path.exists(venv_check_path):
             venv_dir = ".venv"
-        elif os.path.exists("venv"):
-            venv_dir = "venv"
+        else:
+            venv_check_path = os.path.join(self.working_dir, "venv")
+            if os.path.exists(venv_check_path):
+                venv_dir = "venv"
             
         activate_cmd = ""
         if venv_dir:
@@ -138,7 +153,8 @@ class BaseAgent:
                 shell=True, 
                 capture_output=True, 
                 text=True, 
-                timeout=30 
+                timeout=30,
+                cwd=self.working_dir
             )
             
             output = result.stdout
