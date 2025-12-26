@@ -1,7 +1,7 @@
 import os
 import re
 import subprocess
-
+from openai import OpenAI
 
 class BaseAgent:
     def __init__(self, specialization, task, can_write=False, can_execute_terminal=False, extra_tools=None, max_steps=10):
@@ -44,23 +44,25 @@ class BaseAgent:
         tools_desc = "\n".join([f"{i+1}. {t}" for i, t in enumerate(tool_list)])
 
         return f"""You are an expert in {self.specialization}.
-                    Objective: {self.task}
+            Objective: {self.task}
 
-                    Available Tools:
-                    {tools_desc}
+            Available Tools:
+            {tools_desc}
 
-                    Protocol:
-                    1. Thought: Analyze the situation and determine the next step.
-                    2. Action: <tool_name>
-                    3. Action Input: <input>
-                    4. Observation: <tool_output>
-                    ... (Repeat as needed)
-                    5. Final Answer: <your conclusion>
+            Protocol:
+            1. Thought: Analyze the situation and determine the next step.
+            2. Action: <tool_name>
+            3. Action Input: <input>
+            4. Observation: <tool_output>
+            ... (Repeat as needed)
+            5. Final Answer: <your conclusion>
 
-                    Rules:
-                    - Do not hallucinate file contents.
-                    - Follow the Protocol strictly.
-                    - When you have the answer, output it as Final Answer."""
+            Rules:
+            - Do not hallucinate file contents.
+            - Follow the Protocol strictly.
+            - Comments should be at most one line and in format # comment goes here.
+            - You should never have more than 4 comments in one function. 
+            - When you have the answer, output it as Final Answer."""
 
     def list_files(self, dir_path="."):
         file_list = []
@@ -127,8 +129,6 @@ class BaseAgent:
         if venv_dir:
             if os.name == 'nt':
                 activate_cmd = f"{venv_dir}\\Scripts\\activate && "
-            else:
-                activate_cmd = f". {venv_dir}/bin/activate && "
         
         full_command = activate_cmd + command
 
@@ -138,7 +138,7 @@ class BaseAgent:
                 shell=True, 
                 capture_output=True, 
                 text=True, 
-                timeout=30
+                timeout=30 
             )
             
             output = result.stdout
@@ -153,7 +153,20 @@ class BaseAgent:
             return f"Error executing command: {str(e)}"
 
     def call_llm(self, messages):
-        raise NotImplementedError("Integrate DeepSeek API here")
+        client = OpenAI(
+            api_key=os.environ.get('DEEPSEEK_API_KEY'), 
+            base_url="https://api.deepseek.com"
+        )
+        
+        try:
+            response = client.chat.completions.create(
+                model="deepseek-chat",
+                messages=messages,
+                stream=False
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            return f"Error calling DeepSeek API: {str(e)}"
 
     def work(self):
         messages = [{"role": "system", "content": self.system_prompt}]
